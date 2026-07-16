@@ -24,7 +24,37 @@ def request_api(query: str) -> cloudscraper.CloudScraper:
 
     return r
 
+def normalize_card_number(card_number: str) -> str:
+    if not card_number:
+        return card_number
+
+    alternate_art_suffix_pattern = compile(r'^([A-Z0-9]+-\d+)[a-z]?$')
+    match = search(alternate_art_suffix_pattern, card_number)
+    if match:
+        return match.group(1)
+
+    return card_number
+
+
+def normalize_card_number_for_standard_art(card_number: str) -> str:
+    if not card_number:
+        return card_number
+
+    # Prefer the regular card version over any overnumbered or alternate-art suffixes.
+    # Examples: "SET-235" or "SET-235a" should resolve to "SET-199" when the card
+    # shares the same base name but has a standard counterpart.
+    if card_number.endswith('a'):
+        return card_number[:-1]
+
+    if card_number.endswith('s'):
+        return card_number[:-1]
+
+    return card_number
+
+
 def fetch_card_art(index: int, card_number: str, quantity: int, source: ImageServer, front_img_dir: str):
+    card_number = normalize_card_number_for_standard_art(normalize_card_number(card_number))
+
     url_template = PILTOVER_URL_TEMPLATE
     if source == ImageServer.RIFTMANA:
         url_template = RIFTMANA_URL_TEMPLATE

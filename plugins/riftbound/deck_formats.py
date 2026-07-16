@@ -51,7 +51,7 @@ def parse_tts(deck_text: str, handle_card: Callable):
             card_number = f'{ match.group(1).strip() }-{ match.group(2).strip() }'
 
             if int(match.group(3)) > 1:
-                card_number = f'{card_number}{alternate_art_suffix}' # Assume that the desired art is the alternate art
+                card_number = f'{card_number}' 
 
             return ('', card_number, 1)
 
@@ -85,6 +85,7 @@ def parse_pixelborn(deck_text: str, handle_card: Callable):
 
 def parse_piltover_archive(deck_text: str, handle_card: Callable):
     pattern = compile(r'^(\d+) (.+)$') # '{Quantity} {Card Name}'
+    alternate_art_suffix_pattern = compile(r'^([A-Z0-9]+-\d+)[a-z]?$')
 
     def is_piltover_archive_line(line) -> bool:
         return bool(pattern.match(line))
@@ -95,6 +96,11 @@ def parse_piltover_archive(deck_text: str, handle_card: Callable):
             quantity = int(match.group(1))
             name = match.group(2)
             card_number = fetch_card_number(name)
+
+            if card_number:
+                normalized_match = alternate_art_suffix_pattern.match(card_number)
+                if normalized_match:
+                    card_number = normalized_match.group(1)
 
             return (name, card_number, quantity)
 

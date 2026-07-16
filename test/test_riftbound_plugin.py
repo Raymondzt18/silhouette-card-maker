@@ -5,6 +5,8 @@ Tests deck format parsing and image fetching from Piltover Archive/Riftmana.
 import os
 import shutil
 import tempfile
+from unittest.mock import patch
+
 import pytest
 
 from plugins.riftbound.deck_formats import DeckFormat, parse_deck, parse_tts
@@ -50,6 +52,18 @@ class TestPiltoverArchiveFormat:
         # Invalid lines
         assert not pattern.match("")
         assert not pattern.match("Viktor, Herald of the Arcane")  # No quantity
+
+    def test_piltover_archive_uses_regular_art_code(self):
+        """Test that alternate-art suffixes are stripped for Piltover Archive cards."""
+        parsed_cards = []
+
+        def collect_card(index, card_number, quantity):
+            parsed_cards.append((card_number, quantity))
+
+        with patch("plugins.riftbound.deck_formats.fetch_card_number", return_value="SET-123a"):
+            parse_deck("1 Some Card", DeckFormat.PILTOVER, collect_card)
+
+        assert parsed_cards == [("SET-123", 1)]
 
 
 # --- Integration Tests for API and Image Fetching ---
