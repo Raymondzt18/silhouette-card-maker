@@ -10,6 +10,9 @@ This plugin supports many decklist formats such as `tts`, `pixelborn`, and `pilt
 > [!WARNING]
 > `Pixelborn` will be shutdown August 7th, 2025 with Riot's announcement of their [Digital Tools Policy for Riftbound](https://developer.riotgames.com/docs/riftbound). As a result, the format itself may not receive any more support as an export option. However, the `Pixelborn` format will remain here, in the event that it still persists beyond that date.
 
+> [!TIP]
+> Don't want to install Python? The [Riftbound PDF Proxy Maker]({{< relurl "pdf-maker/" >}}) runs entirely in your browser: upload your card images and it builds the print-and-cut PDF for you, with the same options as `create_pdf.py` below.
+
 ## Basic Instructions
 
 Navigate to the root directory as plugins are not meant to be run in the plugins directory.

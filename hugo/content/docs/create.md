@@ -7,6 +7,9 @@ weight: 1
 
 ![Example PDF](/images/create_pdf.png)
 
+> [!TIP]
+> Making Riftbound proxies and don't want to install Python? Try the [Riftbound PDF Proxy Maker]({{< relurl "pdf-maker/" >}}), a browser-based version of this tool with the same options below.
+
 ## Basic Usage
 
 ### Create a Python virtual environment

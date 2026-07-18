@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riftbound PDF Proxy Maker</title>
+<meta name="description" content="Turn Riftbound card images into a print-and-cut PDF for Silhouette cutting machines, entirely in your browser.">
+<link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+<header class="page-header">
+  <h1>Riftbound PDF Proxy Maker</h1>
+  <p>
+    Upload card images and this page will lay them out into a print-and-cut PDF with registration
+    marks for a <a href="https://github.com/Alan-Cha/silhouette-card-maker" target="_blank" rel="noopener">Silhouette cutting machine</a>,
+    tailored for <strong>Riftbound</strong> (63&nbsp;&times;&nbsp;88&nbsp;mm cards). Everything runs locally
+    in your browser &mdash; your images are never uploaded anywhere.
+  </p>
+  <p class="muted">
+    Need card art? Grab it with the
+    <a href="https://piltoverarchive.com/" target="_blank" rel="noopener">Piltover Archive</a> or
+    <a href="https://riftmana.com/" target="_blank" rel="noopener">Riftmana</a> decklist fetcher from the
+    <a href="../plugins/riftbound/" target="_blank" rel="noopener">Riftbound plugin docs</a>, then upload the images here.
+  </p>
+</header>
+
+<main>
+  <form id="pdf-form">
+
+    <section class="card">
+      <h2>1. Card images</h2>
+
+      <div class="upload-grid">
+        <div class="upload-zone" id="zone-front" data-target="front">
+          <label for="input-front"><strong>Front images</strong> <span class="required">(required)</span></label>
+          <p class="hint">One image per card. Duplicate a card by uploading it multiple times or renaming copies.</p>
+          <input type="file" id="input-front" multiple accept="image/*">
+          <div class="drophint">Drop files here or click to choose</div>
+          <ul class="file-list" id="list-front"></ul>
+        </div>
+
+        <div class="upload-zone" id="zone-back" data-target="back">
+          <label for="input-back">Shared back image <span class="optional">(optional)</span></label>
+          <p class="hint">A single image used as the back of every card that doesn't have its own double-sided back.</p>
+          <input type="file" id="input-back" accept="image/*">
+          <div class="drophint">Drop a file here or click to choose</div>
+          <ul class="file-list" id="list-back"></ul>
+        </div>
+
+        <div class="upload-zone" id="zone-ds" data-target="ds">
+          <label for="input-ds">Double-sided backs <span class="optional">(optional)</span></label>
+          <p class="hint">Per-card backs. Each filename (without extension) must match a front image's filename.</p>
+          <input type="file" id="input-ds" multiple accept="image/*">
+          <div class="drophint">Drop files here or click to choose</div>
+          <ul class="file-list" id="list-ds"></ul>
+        </div>
+      </div>
+      <p class="hint">Supported formats: JPG, PNG, WEBP, AVIF, GIF, BMP, TIFF and more (same formats the desktop tool accepts).</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Layout</h2>
+      <div class="field-grid">
+        <div class="field">
+          <label for="card_size">Card size</label>
+          <select id="card_size" name="card_size"></select>
+          <p class="hint">Defaults to <code>standard</code> (63&times;88mm), the Riftbound card size.</p>
+        </div>
+        <div class="field">
+          <label for="paper_size">Paper size</label>
+          <select id="paper_size" name="paper_size"></select>
+        </div>
+        <div class="field">
+          <label for="specialty">Specialty layout</label>
+          <select id="specialty" name="specialty">
+            <option value="">None</option>
+          </select>
+          <p class="hint">Overrides card size, paper size and registration below.</p>
+        </div>
+        <div class="field">
+          <label for="registration">Registration marks</label>
+          <select id="registration" name="registration">
+            <option value="3" selected>3 corner (default)</option>
+            <option value="4">4 corner (Cameo 5 Alpha)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="registration_orientation">Registration orientation</label>
+          <select id="registration_orientation" name="registration_orientation">
+            <option value="" selected>Match card layout</option>
+            <option value="landscape">Force landscape</option>
+            <option value="portrait">Force portrait</option>
+          </select>
+        </div>
+        <div class="field checkbox-field">
+          <label><input type="checkbox" id="borderless" name="borderless"> Borderless (tighter inset, fits more cards)</label>
+        </div>
+        <div class="field checkbox-field">
+          <label><input type="checkbox" id="only_fronts" name="only_fronts"> Fronts only (no back pages)</label>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Fit &amp; crop</h2>
+      <div class="field-grid">
+        <div class="field">
+          <label for="fit">Front / double-sided fit</label>
+          <select id="fit" name="fit">
+            <option value="stretch" selected>Stretch (allows distortion)</option>
+            <option value="crop">Crop (preserves aspect ratio)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fit_backs">Back fit</label>
+          <select id="fit_backs" name="fit_backs">
+            <option value="" selected>Same as front</option>
+            <option value="stretch">Stretch</option>
+            <option value="crop">Crop</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="crop">Crop front edges</label>
+          <input type="text" id="crop" name="crop" placeholder="e.g. 3mm, 0.125in, 6.5">
+        </div>
+        <div class="field">
+          <label for="crop_backs">Crop back edges</label>
+          <input type="text" id="crop_backs" name="crop_backs" placeholder="e.g. 3mm, 0.125in, 6.5">
+        </div>
+      </div>
+      <p class="hint">Use crop if your source images already include their own print bleed.</p>
+    </section>
+
+    <details class="card">
+      <summary><h2>4. Bleed &amp; edge fixes (advanced)</h2></summary>
+      <div class="field-grid">
+        <div class="field">
+          <label for="extend_edges">Extend edges (front)</label>
+          <input type="text" id="extend_edges" name="extend_edges" placeholder="e.g. 3">
+        </div>
+        <div class="field">
+          <label for="extend_edges_backs">Extend edges (back)</label>
+          <input type="text" id="extend_edges_backs" name="extend_edges_backs" placeholder="e.g. 3">
+        </div>
+        <div class="field">
+          <label for="extend_corners">Extend corners (front)</label>
+          <input type="text" id="extend_corners" name="extend_corners" placeholder="e.g. 3.5mm">
+        </div>
+        <div class="field">
+          <label for="extend_corners_backs">Extend corners (back)</label>
+          <input type="text" id="extend_corners_backs" name="extend_corners_backs" placeholder="e.g. 3.5mm">
+        </div>
+        <div class="field">
+          <label for="extend_bleed">Extend outer bleed (front pages)</label>
+          <input type="text" id="extend_bleed" name="extend_bleed" placeholder="e.g. 2mm">
+        </div>
+        <div class="field">
+          <label for="extend_bleed_backs">Extend outer bleed (back pages)</label>
+          <input type="text" id="extend_bleed_backs" name="extend_bleed_backs" placeholder="e.g. 2mm">
+        </div>
+      </div>
+      <p class="hint">
+        Riftbound card scans usually don't need these. If cut cards show slivers of white on rounded
+        corners, try <code>extend_corners = 3.5mm</code>.
+      </p>
+    </details>
+
+    <details class="card">
+      <summary><h2>5. Output &amp; misc</h2></summary>
+      <div class="field-grid">
+        <div class="field">
+          <label for="output_format">Output</label>
+          <select id="output_format" name="output_format">
+            <option value="pdf" selected>PDF</option>
+            <option value="images">PNG images (.zip)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ppi">PPI</label>
+          <input type="number" id="ppi" name="ppi" value="300" min="0" step="1">
+        </div>
+        <div class="field">
+          <label for="quality">Quality</label>
+          <input type="number" id="quality" name="quality" value="100" min="0" max="100" step="1">
+        </div>
+        <div class="field">
+          <label for="skip">Skip card indices</label>
+          <input type="text" id="skip" name="skip" placeholder="e.g. 0, 4">
+        </div>
+        <div class="field">
+          <label for="label">Page label</label>
+          <input type="text" id="label" name="label" placeholder="optional text on every page">
+        </div>
+        <div class="field checkbox-field">
+          <label><input type="checkbox" id="show_outline" name="show_outline"> Show cutting-path outline</label>
+        </div>
+      </div>
+    </details>
+
+    <details class="card">
+      <summary><h2>6. Print alignment calibration (advanced)</h2></summary>
+      <p class="hint">
+        Mirrors <code>offset_pdf.py</code>. If your fronts and backs don't line up after cutting, print a
+        <a href="https://github.com/Alan-Cha/silhouette-card-maker/tree/main/calibration" target="_blank" rel="noopener">calibration sheet</a>,
+        work out your offset, save it below once, then tick &ldquo;Apply saved offset&rdquo; on future runs.
+      </p>
+      <div class="field-grid">
+        <div class="field">
+          <label for="x_offset">X offset</label>
+          <input type="number" id="x_offset" name="x_offset" value="0" step="1">
+        </div>
+        <div class="field">
+          <label for="y_offset">Y offset</label>
+          <input type="number" id="y_offset" name="y_offset" value="0" step="1">
+        </div>
+        <div class="field">
+          <label for="angle_offset">Angle offset (degrees)</label>
+          <input type="number" id="angle_offset" name="angle_offset" value="0" step="0.1">
+        </div>
+        <div class="field checkbox-field">
+          <label><input type="checkbox" id="load_offset" name="load_offset"> Apply saved offset when generating</label>
+        </div>
+      </div>
+      <div class="calibration-actions">
+        <button type="button" id="save-offset-btn">Save calibration to this browser</button>
+        <span id="offset-status" class="hint"></span>
+      </div>
+    </details>
+
+    <section class="card generate-card">
+      <button type="submit" id="generate-btn" disabled>Loading Python runtime&hellip;</button>
+      <div id="result"></div>
+      <pre id="log" class="log" aria-live="polite"></pre>
+    </section>
+
+  </form>
+</main>
+
+<footer class="page-footer">
+  <p>
+    Runs entirely client-side via <a href="https://pyodide.org/" target="_blank" rel="noopener">Pyodide</a>,
+    executing the same <code>create_pdf.py</code> logic as the
+    <a href="https://github.com/Alan-Cha/silhouette-card-maker" target="_blank" rel="noopener">silhouette-card-maker</a> CLI.
+    The Python runtime is ~30&nbsp;MB and is only downloaded once per browser.
+  </p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>
