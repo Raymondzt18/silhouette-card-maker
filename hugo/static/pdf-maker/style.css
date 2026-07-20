@@ -140,6 +140,30 @@ details.card > p {
   padding: 0;
 }
 
+.file-list li {
+  cursor: default;
+}
+
+#hover-preview {
+  position: fixed;
+  z-index: 1000;
+  max-width: 220px;
+  max-height: 307px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.08s ease;
+}
+
+#hover-preview.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -158,6 +182,19 @@ details.card > p {
   background: var(--bg);
   color: var(--fg);
   font-size: 0.95rem;
+}
+
+.field textarea {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  resize: vertical;
 }
 
 .checkbox-field label {

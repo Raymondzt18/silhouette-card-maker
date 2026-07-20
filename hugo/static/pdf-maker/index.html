@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Riftbound PDF Proxy Maker</title>
 <meta name="description" content="Turn Riftbound card images into a print-and-cut PDF for Silhouette cutting machines, entirely in your browser.">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <header class="page-header">
@@ -26,6 +26,39 @@
 
 <main>
   <form id="pdf-form">
+
+    <details class="card" id="import-section">
+      <summary><h2>0. Import missing cards (optional)</h2></summary>
+      <p class="hint">
+        Paste a copied card list here &mdash; plain text (e.g. copied off a decklist/marketplace page showing
+        "3 &times; $1.23" style quantities) or raw HTML both work. If the pasted HTML has card thumbnail
+        images, their filenames are used as exact card codes automatically; otherwise names are looked up
+        by name when you fetch.
+      </p>
+      <div class="field">
+        <label for="import-raw">1. Paste here</label>
+        <textarea id="import-raw" rows="6" placeholder="Baited Hook&#10;3 × $68.18&#10;$204.54&#10;&#10;Thousand-Tailed Watcher&#10;2 × $17.31&#10;..."></textarea>
+      </div>
+      <div class="calibration-actions">
+        <button type="button" id="parse-import-btn">Parse into list</button>
+        <span id="import-parse-status" class="hint"></span>
+      </div>
+      <div class="field" style="margin-top: 1rem;">
+        <label for="import-review">2. Review &amp; edit (one card per line: <code>quantity name</code> or <code>quantity CODE</code>, e.g. <code>3 Baited Hook</code> or <code>3 OGN-214</code>)</label>
+        <textarea id="import-review" rows="10" placeholder="Cards you parse (or type yourself) appear here for editing before fetching."></textarea>
+      </div>
+      <div class="calibration-actions">
+        <button type="button" id="fetch-import-btn">3. Fetch card images into Front images</button>
+      </div>
+      <p class="hint">
+        Images come from the <a href="https://piltoverarchive.com/" target="_blank" rel="noopener">Piltover Archive</a> CDN
+        (the only card image source that allows fetching from a browser page like this one). Lines already
+        written as a card code (like <code>OGN-214</code>) skip name lookup entirely and are more reliable;
+        plain names are resolved via Riftmana's search, which may occasionally fail to be reachable from a
+        browser &mdash; if a name fails, edit that line to use its card code instead and fetch again. Fetched
+        cards are added to the Front images list below, alongside anything you upload manually.
+      </p>
+    </details>
 
     <section class="card">
       <h2>1. Card images</h2>
@@ -247,6 +280,6 @@
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

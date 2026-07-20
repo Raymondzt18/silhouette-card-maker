@@ -62,6 +62,45 @@ function humanSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ---------------------------------------------------------------------------
+// Hover preview: a single floating <img> shared by every file list, shown
+// next to the cursor while hovering a card's row.
+// ---------------------------------------------------------------------------
+
+const hoverPreview = document.createElement("img");
+hoverPreview.id = "hover-preview";
+document.body.appendChild(hoverPreview);
+let hoverPreviewUrl = null;
+
+function positionHoverPreview(x, y) {
+  const margin = 18;
+  const w = hoverPreview.offsetWidth || 220;
+  const h = hoverPreview.offsetHeight || 307;
+  let left = x + margin;
+  let top = y + margin;
+  if (left + w > window.innerWidth) left = x - margin - w;
+  if (top + h > window.innerHeight) top = y - margin - h;
+  hoverPreview.style.left = `${Math.max(0, left)}px`;
+  hoverPreview.style.top = `${Math.max(0, top)}px`;
+}
+
+function showHoverPreview(file, x, y) {
+  if (hoverPreviewUrl) URL.revokeObjectURL(hoverPreviewUrl);
+  hoverPreviewUrl = URL.createObjectURL(file);
+  hoverPreview.src = hoverPreviewUrl;
+  hoverPreview.classList.add("visible");
+  positionHoverPreview(x, y);
+}
+
+function hideHoverPreview() {
+  hoverPreview.classList.remove("visible");
+  hoverPreview.removeAttribute("src");
+  if (hoverPreviewUrl) {
+    URL.revokeObjectURL(hoverPreviewUrl);
+    hoverPreviewUrl = null;
+  }
+}
+
 function setupUploadZone(zoneId, inputId, listId, multiple) {
   const zone = document.getElementById(zoneId);
   const input = document.getElementById(inputId);
@@ -69,6 +108,7 @@ function setupUploadZone(zoneId, inputId, listId, multiple) {
   const files = new Map(); // name -> File
 
   function render() {
+    hideHoverPreview();
     list.innerHTML = "";
     for (const [name, file] of files) {
       const li = document.createElement("li");
@@ -83,6 +123,9 @@ function setupUploadZone(zoneId, inputId, listId, multiple) {
       });
       li.appendChild(label);
       li.appendChild(removeBtn);
+      li.addEventListener("mouseenter", (e) => showHoverPreview(file, e.clientX, e.clientY));
+      li.addEventListener("mousemove", (e) => positionHoverPreview(e.clientX, e.clientY));
+      li.addEventListener("mouseleave", hideHoverPreview);
       list.appendChild(li);
     }
   }
@@ -126,12 +169,237 @@ function setupUploadZone(zoneId, inputId, listId, multiple) {
     input.click();
   });
 
-  return files;
+  // `files` is mutated directly by callers that programmatically add entries
+  // (e.g. fetched card art); `refresh` re-renders the visible list afterward.
+  return { files, refresh: render };
 }
 
-const frontFiles = setupUploadZone("zone-front", "input-front", "list-front", true);
-const backFiles = setupUploadZone("zone-back", "input-back", "list-back", false);
-const dsFiles = setupUploadZone("zone-ds", "input-ds", "list-ds", true);
+const frontZone = setupUploadZone("zone-front", "input-front", "list-front", true);
+const backZone = setupUploadZone("zone-back", "input-back", "list-back", false);
+const dsZone = setupUploadZone("zone-ds", "input-ds", "list-ds", true);
+const frontFiles = frontZone.files;
+const backFiles = backZone.files;
+const dsFiles = dsZone.files;
+
+// ---------------------------------------------------------------------------
+// Import missing cards: paste a copied card list (plain text or HTML),
+// parse it into an editable "quantity name-or-code" list, then fetch card
+// art for it straight into the Front images zone above.
+//
+// The line-parsing logic below is a direct port of
+// plugins/riftbound/format_deck.py's parse_unformatted_deck(), which already
+// handles the "Card Name" / "N × $price" / "$subtotal" / section-heading
+// shape produced by copy-pasting a missing-cards list as plain text.
+// ---------------------------------------------------------------------------
+
+const SECTION_HEADING_PATTERN = /^(.*?\b(?:Main Deck|Sideboard|Battlefields|Runes|Champions|Legend)\b.*|.*?·.*missing)$/i;
+const QUANTITY_LINE_PATTERN = /^(\d+)\s*[×x]\s*\$[\d,.]+$/;
+const PRICE_ONLY_PATTERN = /^\$[\d,.]+$/;
+const CARD_CODE_PATTERN = /^[A-Za-z0-9]{2,6}-\d{1,4}[a-z]?$/;
+const CARD_CODE_IN_URL_PATTERN = /([A-Za-z0-9]{2,6}-\d{1,4}[a-z]?)\.(?:webp|png|jpe?g|avif|gif)(?=["'?#\s]|$)/gi;
+const PILTOVER_IMAGE_URL = (code) => `https://cdn.piltoverarchive.com/cards/${code}.webp`;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Port of parse_unformatted_deck(): name -> summed quantity, insertion order preserved.
+function parseUnformattedDeck(text) {
+  const lines = text.split("\n").map((l) => l.trim());
+  const cards = new Map();
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line || SECTION_HEADING_PATTERN.test(line) || PRICE_ONLY_PATTERN.test(line)) {
+      index += 1;
+      continue;
+    }
+    if (QUANTITY_LINE_PATTERN.test(line)) {
+      index += 1;
+      continue;
+    }
+    let lookahead = index + 1;
+    while (lookahead < lines.length && !lines[lookahead]) lookahead += 1;
+    if (lookahead < lines.length && QUANTITY_LINE_PATTERN.test(lines[lookahead])) {
+      const quantity = parseInt(QUANTITY_LINE_PATTERN.exec(lines[lookahead])[1], 10);
+      cards.set(line, (cards.get(line) || 0) + quantity);
+      index = lookahead + 1;
+      continue;
+    }
+    index += 1;
+  }
+  return cards;
+}
+
+// A single card thumbnail's srcset repeats the same code for every width
+// variant (plus once more in src) — collapse consecutive repeats so this
+// yields one code per card, matching one entry per parsed name/quantity.
+function extractImgCodesFromRaw(raw) {
+  const codes = [];
+  let m;
+  CARD_CODE_IN_URL_PATTERN.lastIndex = 0;
+  while ((m = CARD_CODE_IN_URL_PATTERN.exec(raw)) !== null) {
+    const code = m[1].toUpperCase();
+    if (codes[codes.length - 1] !== code) codes.push(code);
+  }
+  return codes;
+}
+
+function looksLikeHtml(raw) {
+  return /<[a-z][\s\S]*>/i.test(raw);
+}
+
+// HTML-to-text: real-world card lists are minified to one line and use
+// arbitrary wrapper elements (div, span, li, ...) around each of the name/
+// quantity/price texts, so every tag boundary — not just a curated block-tag
+// list — is treated as a line break; the line-based parser below already
+// tolerates the resulting blank lines. Entities are decoded via a detached
+// <textarea> (parses safely, never executes anything). Falls through
+// untouched for plain-text input.
+function htmlToPlainText(raw) {
+  if (!looksLikeHtml(raw)) return raw;
+  const withBreaks = raw
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "\n")
+    .replace(/<[^>]+>/g, "\n");
+  const decoder = document.createElement("textarea");
+  decoder.innerHTML = withBreaks;
+  return decoder.value;
+}
+
+// Combines name/quantity parsing with any card codes found in image URLs
+// (e.g. .../cards/OGN-214.webp) in the pasted HTML. When there's exactly one
+// code per parsed entry, codes are used in place of names (more reliable,
+// skips lookup entirely); otherwise this quietly falls back to names only.
+function buildReviewLines(raw) {
+  const codes = extractImgCodesFromRaw(raw);
+  const entries = Array.from(parseUnformattedDeck(htmlToPlainText(raw)).entries());
+  const useCodes = codes.length > 0 && codes.length === entries.length;
+  return entries.map(([name, qty], i) => `${qty} ${useCodes ? codes[i] : name}`);
+}
+
+function normalizeCardNumber(code) {
+  const m = /^([A-Z0-9]+-\d+)[a-z]?$/i.exec(code.trim());
+  return (m ? m[1] : code.trim()).toUpperCase();
+}
+
+// Port of api.py's fetch_card_number(): resolves a card name to its card
+// number via Riftmana's search API. This endpoint sits behind Cloudflare bot
+// protection and may not be reachable from a cross-origin browser fetch even
+// though it's a real browser making the request — callers should treat
+// failures here as expected and let the user substitute a card code by hand.
+async function resolveCardNumber(name) {
+  const lookupName = name === "Spirit's Refuge" ? "Spirit's Rifuge" : name;
+  const sanitized = lookupName.replace(/[^A-Za-z0-9 -]+/g, "").trim();
+  const slug = sanitized.replace(/\s+/g, "-").toLowerCase();
+
+  const searchRes = await fetch(`https://riftmana.com/wp-json/wp/v2/card-name?search=${encodeURIComponent(slug)}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!searchRes.ok) throw new Error(`name lookup failed (HTTP ${searchRes.status})`);
+  const searchJson = await searchRes.json();
+  const cardLink = searchJson?.[0]?._links?.["wp:post_type"]?.[0]?.href;
+  if (!cardLink) throw new Error("no matching card found");
+
+  const cardRes = await fetch(cardLink, { headers: { Accept: "application/json" } });
+  if (!cardRes.ok) throw new Error(`card lookup failed (HTTP ${cardRes.status})`);
+  const cardJson = await cardRes.json();
+  const titleRendered = cardJson?.[0]?.title?.rendered;
+  if (!titleRendered) throw new Error("unexpected response from card lookup");
+
+  const match = /^([A-Z0-9]+-\d+[a-z]?)(\s+|-)(.*)$/.exec(titleRendered);
+  if (!match) throw new Error(`could not parse card number from "${titleRendered}"`);
+  return normalizeCardNumber(match[1]);
+}
+
+async function fetchCardImageBlob(cardNumber) {
+  const res = await fetch(PILTOVER_IMAGE_URL(cardNumber));
+  if (!res.ok) throw new Error(`image fetch failed (HTTP ${res.status})`);
+  return res.blob();
+}
+
+document.getElementById("parse-import-btn").addEventListener("click", () => {
+  const raw = document.getElementById("import-raw").value;
+  const statusEl = document.getElementById("import-parse-status");
+  if (!raw.trim()) {
+    statusEl.textContent = "Paste something above first.";
+    return;
+  }
+  const lines = buildReviewLines(raw);
+  document.getElementById("import-review").value = lines.join("\n");
+  if (lines.length > 0) {
+    statusEl.textContent = `Parsed ${lines.length} card line(s).`;
+  } else {
+    // Self-diagnosing: show what was actually received so a format mismatch
+    // is visible instead of a dead end.
+    const rawLines = raw.split("\n");
+    const nonBlank = rawLines.filter((l) => l.trim().length > 0);
+    const preview = rawLines.slice(0, 4).map((l) => JSON.stringify(l)).join(" | ");
+    statusEl.textContent =
+      `Couldn't find any card lines. Received ${rawLines.length} line(s), ${nonBlank.length} non-blank ` +
+      `(looked like ${looksLikeHtml(raw) ? "HTML" : "plain text"}). First lines: ${preview}`;
+    console.warn("Import parse produced 0 entries. Raw input:", raw);
+  }
+});
+
+document.getElementById("fetch-import-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("fetch-import-btn");
+  const lines = document.getElementById("import-review").value
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    showResult("Nothing to fetch — parse a pasted list or type card lines first.", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  clearLog();
+  showResult("", "");
+  const lineLinePattern = /^(\d+)\s+(.+)$/;
+  let fetchedCount = 0;
+
+  for (const line of lines) {
+    const match = lineLinePattern.exec(line);
+    if (!match) {
+      appendLog(`Skipping unrecognized line: "${line}"`);
+      continue;
+    }
+    const quantity = parseInt(match[1], 10);
+    const rest = match[2].trim();
+
+    let code;
+    if (CARD_CODE_PATTERN.test(rest)) {
+      code = normalizeCardNumber(rest);
+    } else {
+      try {
+        code = await resolveCardNumber(rest);
+        appendLog(`Resolved "${rest}" → ${code}`);
+      } catch (err) {
+        appendLog(`⚠ Could not resolve "${rest}": ${err.message}. Edit this line to use its card code directly (e.g. "SET-123") and fetch again.`);
+        continue;
+      }
+    }
+
+    try {
+      const blob = await fetchCardImageBlob(code);
+      for (let copy = 1; copy <= quantity; copy++) {
+        const filename = quantity > 1 ? `${code}_${copy}.webp` : `${code}.webp`;
+        frontFiles.set(filename, new File([blob], filename, { type: blob.type || "image/webp" }));
+      }
+      fetchedCount += 1;
+      appendLog(`Fetched ${code} ×${quantity}`);
+    } catch (err) {
+      appendLog(`⚠ Could not fetch image for ${code}: ${err.message}`);
+    }
+
+    await sleep(75); // be polite to the CDN, same pacing as fetch.py
+  }
+
+  frontZone.refresh();
+  btn.disabled = false;
+  showResult(`Fetched ${fetchedCount} of ${lines.length} card line(s) into Front images below.`, fetchedCount > 0 ? "success" : "error");
+});
 
 // ---------------------------------------------------------------------------
 // Layout option selects, populated from the same layouts.json the CLI uses
