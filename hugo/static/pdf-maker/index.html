@@ -30,14 +30,17 @@
     <details class="card" id="import-section">
       <summary><h2>0. Import missing cards (optional)</h2></summary>
       <p class="hint">
-        Paste a copied card list here &mdash; plain text (e.g. copied off a decklist/marketplace page showing
-        "3 &times; $1.23" style quantities) or raw HTML both work. If the pasted HTML has card thumbnail
-        images, their filenames are used as exact card codes automatically; otherwise names are looked up
-        by name when you fetch.
+        Paste a copied card list here &mdash; plain text or raw HTML both work. This accepts a
+        marketplace-style paste (e.g. showing "3 &times; $1.23" style quantities), a plain decklist
+        export with "<code>N Card Name</code>" lines (section headings like <code>MainDeck:</code>,
+        <code>Champion:</code>, <code>Rune Pool:</code>, <code>Sideboard:</code> are skipped
+        automatically), or raw card codes. If the pasted HTML has card thumbnail images, their
+        filenames are used as exact card codes automatically; otherwise names are looked up by name
+        when you fetch.
       </p>
       <div class="field">
         <label for="import-raw">1. Paste here</label>
-        <textarea id="import-raw" rows="6" placeholder="Baited Hook&#10;3 × $68.18&#10;$204.54&#10;&#10;Thousand-Tailed Watcher&#10;2 × $17.31&#10;..."></textarea>
+        <textarea id="import-raw" rows="6" placeholder="Baited Hook&#10;3 × $68.18&#10;$204.54&#10;&#10;MainDeck:&#10;3 Elder Dragon&#10;..."></textarea>
       </div>
       <div class="calibration-actions">
         <button type="button" id="parse-import-btn">Parse into list</button>
@@ -280,6 +283,6 @@
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

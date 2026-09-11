@@ -186,15 +186,28 @@ const dsFiles = dsZone.files;
 // parse it into an editable "quantity name-or-code" list, then fetch card
 // art for it straight into the Front images zone above.
 //
-// The line-parsing logic below is a direct port of
-// plugins/riftbound/format_deck.py's parse_unformatted_deck(), which already
-// handles the "Card Name" / "N × $price" / "$subtotal" / section-heading
-// shape produced by copy-pasting a missing-cards list as plain text.
+// The line-parsing logic below is a port of plugins/riftbound/format_deck.py's
+// parse_unformatted_deck(), which handles two input shapes:
+//   - Marketplace paste: "Card Name" / "N × $price" / "$subtotal", with
+//     section headings like "Champions · 3 missing".
+//   - Plain decklist export: "N Card Name" on a single line, with section
+//     headings like "MainDeck:", "Rune Pool:", "Champion:".
 // ---------------------------------------------------------------------------
 
+// Marketplace-paste headers (e.g. "Champions · 3 missing"): matched loosely,
+// as a substring anywhere on the line, since real captures wrap the keyword
+// with extra "· N missing" chrome.
 const SECTION_HEADING_PATTERN = /^(.*?\b(?:Main Deck|Sideboard|Battlefields|Runes|Champions|Legend)\b.*|.*?·.*missing)$/i;
+// Plain decklist section headers (e.g. "MainDeck:", "Rune Pool:", "Champion:").
+// Matched strictly against the *entire* trimmed line, since these keywords
+// can also be substrings of real card names (e.g. "Mind Rune", "Order Rune").
+const DECKLIST_SECTION_HEADING_PATTERN = /^(?:Main\s*Deck|Sideboard|Battlefields?|Rune\s*Pool|Champions?|Legends?)\s*:?\s*$/i;
 const QUANTITY_LINE_PATTERN = /^(\d+)\s*[×x]\s*\$[\d,.]+$/;
 const PRICE_ONLY_PATTERN = /^\$[\d,.]+$/;
+// A single-line "quantity name" entry (e.g. "3 Elder Dragon"), as used by
+// plain decklist exports rather than the two-line marketplace paste shape.
+// Also reused below to parse the reviewed/edited import list before fetching.
+const SINGLE_LINE_ENTRY_PATTERN = /^(\d+)\s+(.+)$/;
 const CARD_CODE_PATTERN = /^[A-Za-z0-9]{2,6}-\d{1,4}[a-z]?$/;
 const CARD_CODE_IN_URL_PATTERN = /([A-Za-z0-9]{2,6}-\d{1,4}[a-z]?)\.(?:webp|png|jpe?g|avif|gif)(?=["'?#\s]|$)/gi;
 const PILTOVER_IMAGE_URL = (code) => `https://cdn.piltoverarchive.com/cards/${code}.webp`;
@@ -210,7 +223,12 @@ function parseUnformattedDeck(text) {
   let index = 0;
   while (index < lines.length) {
     const line = lines[index];
-    if (!line || SECTION_HEADING_PATTERN.test(line) || PRICE_ONLY_PATTERN.test(line)) {
+    if (
+      !line ||
+      SECTION_HEADING_PATTERN.test(line) ||
+      DECKLIST_SECTION_HEADING_PATTERN.test(line) ||
+      PRICE_ONLY_PATTERN.test(line)
+    ) {
       index += 1;
       continue;
     }
@@ -218,6 +236,19 @@ function parseUnformattedDeck(text) {
       index += 1;
       continue;
     }
+
+    // A complete "quantity name" entry on one line (plain decklist shape).
+    const singleLineMatch = SINGLE_LINE_ENTRY_PATTERN.exec(line);
+    if (singleLineMatch) {
+      const quantity = parseInt(singleLineMatch[1], 10);
+      const cardName = singleLineMatch[2].trim();
+      cards.set(cardName, (cards.get(cardName) || 0) + quantity);
+      index += 1;
+      continue;
+    }
+
+    // Card name on its own line, followed (after any blank lines) by a
+    // "N × $price" line (marketplace paste shape).
     let lookahead = index + 1;
     while (lookahead < lines.length && !lines[lookahead]) lookahead += 1;
     if (lookahead < lines.length && QUANTITY_LINE_PATTERN.test(lines[lookahead])) {
@@ -282,33 +313,35 @@ function normalizeCardNumber(code) {
   return (m ? m[1] : code.trim()).toUpperCase();
 }
 
-// Port of api.py's fetch_card_number(): resolves a card name to its card
-// number via Riftmana's search API. This endpoint sits behind Cloudflare bot
-// protection and may not be reachable from a cross-origin browser fetch even
-// though it's a real browser making the request — callers should treat
-// failures here as expected and let the user substitute a card code by hand.
-async function resolveCardNumber(name) {
-  const lookupName = name === "Spirit's Refuge" ? "Spirit's Rifuge" : name;
-  const sanitized = lookupName.replace(/[^A-Za-z0-9 -]+/g, "").trim();
-  const slug = sanitized.replace(/\s+/g, "-").toLowerCase();
+const RIFTMANA_SEARCH_URL = (query) => `https://riftmana.com/wp-json/riftmana/v2/cards/search?search=${encodeURIComponent(query)}`;
+const BASE_CARD_ID_PATTERN = /^[A-Z0-9]+-\d+$/;
 
-  const searchRes = await fetch(`https://riftmana.com/wp-json/wp/v2/card-name?search=${encodeURIComponent(slug)}`, {
-    headers: { Accept: "application/json" },
-  });
+// Port of api.py's fetch_card_number(): resolves a card name to its card
+// number via Riftmana's card search API. This endpoint does not send an
+// Access-Control-Allow-Origin header, so it may not be reachable from a
+// cross-origin browser fetch even though it's a real browser making the
+// request — callers should treat failures here as expected and let the user
+// substitute a card code by hand.
+async function resolveCardNumber(name) {
+  const searchRes = await fetch(RIFTMANA_SEARCH_URL(name), { headers: { Accept: "application/json" } });
   if (!searchRes.ok) throw new Error(`name lookup failed (HTTP ${searchRes.status})`);
   const searchJson = await searchRes.json();
-  const cardLink = searchJson?.[0]?._links?.["wp:post_type"]?.[0]?.href;
-  if (!cardLink) throw new Error("no matching card found");
+  const cards = searchJson?.data?.cards || [];
+  if (cards.length === 0) throw new Error("no matching card found");
 
-  const cardRes = await fetch(cardLink, { headers: { Accept: "application/json" } });
-  if (!cardRes.ok) throw new Error(`card lookup failed (HTTP ${cardRes.status})`);
-  const cardJson = await cardRes.json();
-  const titleRendered = cardJson?.[0]?.title?.rendered;
-  if (!titleRendered) throw new Error("unexpected response from card lookup");
+  // The search can return multiple printings of the same name across sets
+  // (reprints) and multiple variants of the same printing (alternate art,
+  // promos). Prefer an exact name match over a fuzzy one, and within that,
+  // prefer the base card ID (no alternate-art/promo suffix) as the default.
+  const normalizedName = name.trim().toLowerCase();
+  const exactMatches = cards.filter((card) => (card.name || "").trim().toLowerCase() === normalizedName);
+  const candidates = exactMatches.length > 0 ? exactMatches : cards;
 
-  const match = /^([A-Z0-9]+-\d+[a-z]?)(\s+|-)(.*)$/.exec(titleRendered);
-  if (!match) throw new Error(`could not parse card number from "${titleRendered}"`);
-  return normalizeCardNumber(match[1]);
+  const base = candidates.find((card) => BASE_CARD_ID_PATTERN.test(card.card_id || ""));
+  const cardId = (base || candidates[0])?.card_id;
+  if (!cardId) throw new Error("no matching card found");
+
+  return normalizeCardNumber(cardId);
 }
 
 async function fetchCardImageBlob(cardNumber) {
@@ -356,11 +389,10 @@ document.getElementById("fetch-import-btn").addEventListener("click", async () =
   btn.disabled = true;
   clearLog();
   showResult("", "");
-  const lineLinePattern = /^(\d+)\s+(.+)$/;
   let fetchedCount = 0;
 
   for (const line of lines) {
-    const match = lineLinePattern.exec(line);
+    const match = SINGLE_LINE_ENTRY_PATTERN.exec(line);
     if (!match) {
       appendLog(`Skipping unrecognized line: "${line}"`);
       continue;

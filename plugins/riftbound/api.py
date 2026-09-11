@@ -1,11 +1,15 @@
 from os import path
-from re import compile, search, sub
+from re import compile, search
 from enum import Enum
+from urllib.parse import quote
 import cloudscraper
 from time import sleep
 
 PILTOVER_URL_TEMPLATE = 'https://cdn.piltoverarchive.com/cards/{card_number}.webp'
 RIFTMANA_URL_TEMPLATE = 'https://riftmana.com/wp-content/uploads/Cards/{card_number}.webp'
+RIFTMANA_SEARCH_URL_TEMPLATE = 'https://riftmana.com/wp-json/riftmana/v2/cards/search?search={query}'
+
+BASE_CARD_ID_PATTERN = compile(r'^[A-Z0-9]+-\d+$')
 
 class ImageServer(str, Enum):
     PILTOVER = 'piltover_archive'
@@ -82,28 +86,28 @@ def fetch_card_art(index: int, card_number: str, quantity: int, source: ImageSer
                     f.write(card_art)
 
 def fetch_card_number(name: str) -> str:
-    # Edge case of cards that are misnamed on the backend
-    if name == "Spirit's Refuge":
-        name = "Spirit's Rifuge"
+    # Resolve a card name to its card number via Riftmana's card search API.
+    url = RIFTMANA_SEARCH_URL_TEMPLATE.format(query=quote(name))
+    search_response = request_api(url)
 
-    # Get the internal information based on the card name to route to the card itself
-    sanitized = sub(r'[^A-Za-z0-9 \-]+', '', name)
-    slugified = sub(r'\s+', '-', sanitized).lower()
+    cards = search_response.json().get('data', {}).get('cards', [])
+    if not cards:
+        return None
 
-    url = f"https://riftmana.com/wp-json/wp/v2/card-name?search={slugified}"
-    name_response = request_api(url)
+    # The search can return multiple printings of the same name across sets
+    # (reprints) and multiple variants of the same printing (alternate art,
+    # promos). Prefer an exact name match over a fuzzy one, and within that,
+    # prefer the base card ID (no alternate-art/promo suffix) as the default.
+    normalized_name = name.strip().lower()
+    exact_matches = [card for card in cards if (card.get('name') or '').strip().lower() == normalized_name]
+    candidates = exact_matches or cards
 
-    # Now we can retrieve the card number
-    card_link = name_response.json()[0].get('_links', {}).get('wp:post_type')[0].get('href')
-    card_response = request_api(card_link)
-    card_number_and_name = card_response.json()[0].get('title').get('rendered')
+    for card in candidates:
+        card_id = card.get('card_id')
+        if card_id and BASE_CARD_ID_PATTERN.match(card_id):
+            return card_id
 
-    # '{Card Number} {Card Name}'
-    pattern = compile(r'^([A-Z0-9]+-\d+[a-z]?)(\s+|-)(.*)$')
-    match = pattern.match(card_number_and_name)
-
-    if match:
-        return match.group(1).strip()
+    return candidates[0].get('card_id')
 
 def get_handle_card(
     source: ImageServer,

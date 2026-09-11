@@ -10,7 +10,17 @@ from unittest.mock import patch
 import pytest
 
 from plugins.riftbound.deck_formats import DeckFormat, parse_deck, parse_tts
-from plugins.riftbound.api import request_api, get_handle_card, ImageServer
+from plugins.riftbound.api import request_api, get_handle_card, ImageServer, fetch_card_number
+from plugins.riftbound.format_deck import parse_unformatted_deck
+
+
+def _search_response(cards):
+    """Build a fake requests.Response-like object matching Riftmana's
+    /riftmana/v2/cards/search shape, as consumed by fetch_card_number()."""
+    class FakeResponse:
+        def json(self_inner):
+            return {'success': True, 'data': {'cards': cards}}
+    return FakeResponse()
 
 
 # --- Unit Tests for Deck Format Parsing ---
@@ -64,6 +74,117 @@ class TestPiltoverArchiveFormat:
             parse_deck("1 Some Card", DeckFormat.PILTOVER, collect_card)
 
         assert parsed_cards == [("SET-123", 1)]
+
+
+class TestFetchCardNumber:
+    """Test fetch_card_number()'s selection logic against Riftmana's card
+    search API response shape (mocked, no network)."""
+
+    def test_prefers_base_card_id_over_variants(self):
+        """When several printings/variants share a name, the base (non-suffixed)
+        card ID should be preferred over alternate-art/promo variants."""
+        cards = [
+            {'card_id': 'OGN-126', 'name': 'Body Rune'},
+            {'card_id': 'OGN-126a', 'name': 'Body Rune'},
+            {'card_id': 'OGN-126b', 'name': 'Body Rune'},
+        ]
+        with patch('plugins.riftbound.api.request_api', return_value=_search_response(cards)):
+            assert fetch_card_number('Body Rune') == 'OGN-126'
+
+    def test_prefers_exact_name_match(self):
+        """A fuzzy/unrelated result sharing a substring should lose to an exact
+        (case-insensitive) name match elsewhere in the result list."""
+        cards = [
+            {'card_id': 'OGN-001', 'name': 'Blazing Scorcher'},
+            {'card_id': 'OGN-245', 'name': 'Seal of Unity'},
+        ]
+        with patch('plugins.riftbound.api.request_api', return_value=_search_response(cards)):
+            assert fetch_card_number('seal of unity') == 'OGN-245'
+
+    def test_no_results_returns_none(self):
+        with patch('plugins.riftbound.api.request_api', return_value=_search_response([])):
+            assert fetch_card_number('Not A Real Card') is None
+
+    def test_falls_back_to_first_result_when_no_base_id(self):
+        """If every candidate has a suffix (no clean base ID), just take the first."""
+        cards = [
+            {'card_id': 'OGN-265-p', 'name': 'Viktor, Herald of the Arcane'},
+            {'card_id': 'OGN-308s', 'name': 'Viktor, Herald of the Arcane'},
+        ]
+        with patch('plugins.riftbound.api.request_api', return_value=_search_response(cards)):
+            assert fetch_card_number('Viktor, Herald of the Arcane') == 'OGN-265-p'
+
+
+class TestParseUnformattedDeck:
+    """Test format_deck.py's parse_unformatted_deck() against both supported
+    paste shapes: plain decklist exports (section headers + "N Name" lines)
+    and marketplace pastes (name line + separate "N x $price" line)."""
+
+    def test_plain_decklist_with_section_headers(self):
+        """Section headers like 'MainDeck:'/'Rune Pool:'/'Champion:' are skipped,
+        and cards whose names contain a header keyword (e.g. 'Mind Rune') are
+        still parsed as cards rather than mistaken for a 'Rune Pool:' heading."""
+        deck_text = """Legend:
+1 Jayce, Defender of Tomorrow
+
+Champion:
+1 Jayce, Man of Progress
+
+MainDeck:
+3 Elder Dragon
+2 Wages of Pain
+1 Sabotage
+
+Battlefields:
+1 Sigil of the Storm
+
+Rune Pool:
+7 Body Rune
+5 Mind Rune
+
+Sideboard:
+2 Sabotage
+1 Wages of Pain
+"""
+        cards = parse_unformatted_deck(deck_text)
+
+        assert cards["Jayce, Defender of Tomorrow"] == 1
+        assert cards["Jayce, Man of Progress"] == 1
+        assert cards["Elder Dragon"] == 3
+        assert cards["Sigil of the Storm"] == 1
+        assert cards["Body Rune"] == 7
+        assert cards["Mind Rune"] == 5
+        # Same card name appearing in multiple sections sums across the deck.
+        assert cards["Wages of Pain"] == 3
+        assert cards["Sabotage"] == 3
+        assert len(cards) == 8
+
+    def test_marketplace_paste_shape_still_works(self):
+        """Regression: the original 'name line, then N x $price line' shape
+        (e.g. a copy-pasted missing-cards list) must keep working unchanged."""
+        deck_text = """LeBlanc, Deceiver
+1 × $0.16
+$0.16
+Champions · 1 missing
+$0.26
+
+Order Rune
+6 × $0.13
+$0.78
+
+Mind Rune
+2 × $0.09
+$0.18
+Sideboard · 3 missing
+$3.10
+"""
+        cards = parse_unformatted_deck(deck_text)
+
+        assert cards == {
+            "LeBlanc, Deceiver": 1,
+            "Order Rune": 6,
+            "Mind Rune": 2,
+        }
 
 
 # --- Integration Tests for API and Image Fetching ---

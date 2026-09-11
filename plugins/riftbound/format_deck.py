@@ -3,9 +3,25 @@ import os
 import re
 from collections import OrderedDict
 
+# Marketplace-paste headers (e.g. "Champions · 3 missing"): matched loosely,
+# as a substring anywhere on the line, since real captures wrap the keyword
+# with extra "· N missing" chrome.
 SECTION_HEADING_PATTERN = re.compile(r'^(.*?\b(?:Main Deck|Sideboard|Battlefields|Runes|Champions|Legend)\b.*|.*?·.*missing)$', re.IGNORECASE)
+
+# Plain decklist section headers (e.g. "MainDeck:", "Rune Pool:", "Champion:").
+# Matched strictly against the *entire* trimmed line, since these keywords can
+# also be substrings of real card names (e.g. "Mind Rune", "Order Rune").
+DECKLIST_SECTION_HEADING_PATTERN = re.compile(
+    r'^(?:Main\s*Deck|Sideboard|Battlefields?|Rune\s*Pool|Champions?|Legends?)\s*:?\s*$',
+    re.IGNORECASE,
+)
+
 QUANTITY_LINE_PATTERN = re.compile(r'^(\d+)\s*[×x]\s*\$[\d,.]+$')
 PRICE_ONLY_PATTERN = re.compile(r'^\$[\d,.]+$')
+
+# A single-line "quantity name" entry (e.g. "3 Elder Dragon"), as used by
+# plain decklist exports rather than the two-line marketplace paste shape.
+SINGLE_LINE_ENTRY_PATTERN = re.compile(r'^(\d+)\s+(.+)$')
 
 
 def parse_unformatted_deck(text: str) -> OrderedDict[str, int]:
@@ -16,7 +32,12 @@ def parse_unformatted_deck(text: str) -> OrderedDict[str, int]:
     while index < len(lines):
         line = lines[index]
 
-        if not line or SECTION_HEADING_PATTERN.match(line) or PRICE_ONLY_PATTERN.match(line):
+        if (
+            not line
+            or SECTION_HEADING_PATTERN.match(line)
+            or DECKLIST_SECTION_HEADING_PATTERN.match(line)
+            or PRICE_ONLY_PATTERN.match(line)
+        ):
             index += 1
             continue
 
@@ -25,7 +46,19 @@ def parse_unformatted_deck(text: str) -> OrderedDict[str, int]:
             index += 1
             continue
 
-        # Look ahead for the quantity line after a card name.
+        # A complete "quantity name" entry on one line (plain decklist shape).
+        single_line_match = SINGLE_LINE_ENTRY_PATTERN.match(line)
+        if single_line_match:
+            quantity = int(single_line_match.group(1))
+            card_name = single_line_match.group(2).strip()
+            if card_name in cards:
+                cards[card_name] += quantity
+            else:
+                cards[card_name] = quantity
+            index += 1
+            continue
+
+        # Look ahead for the quantity line after a card name (marketplace paste shape).
         lookahead = index + 1
         while lookahead < len(lines) and not lines[lookahead]:
             lookahead += 1
