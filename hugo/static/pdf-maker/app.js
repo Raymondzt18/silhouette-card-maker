@@ -101,7 +101,7 @@ function hideHoverPreview() {
   }
 }
 
-function setupUploadZone(zoneId, inputId, listId, multiple) {
+function setupUploadZone(zoneId, inputId, listId, multiple, onChange) {
   const zone = document.getElementById(zoneId);
   const input = document.getElementById(inputId);
   const list = document.getElementById(listId);
@@ -128,6 +128,7 @@ function setupUploadZone(zoneId, inputId, listId, multiple) {
       li.addEventListener("mouseleave", hideHoverPreview);
       list.appendChild(li);
     }
+    onChange?.();
   }
 
   function addFiles(fileList) {
@@ -174,7 +175,7 @@ function setupUploadZone(zoneId, inputId, listId, multiple) {
   return { files, refresh: render };
 }
 
-const frontZone = setupUploadZone("zone-front", "input-front", "list-front", true);
+const frontZone = setupUploadZone("zone-front", "input-front", "list-front", true, () => updateFrontCountStatus());
 const backZone = setupUploadZone("zone-back", "input-back", "list-back", false);
 const dsZone = setupUploadZone("zone-ds", "input-ds", "list-ds", true);
 const frontFiles = frontZone.files;
@@ -507,9 +508,72 @@ function addOption(select, value, label, selected) {
   select.appendChild(opt);
 }
 
+// Set once layouts.json loads (below); used to compute cards-per-page for
+// the front-image slot-count status.
+let layoutsData = null;
+
+// Card/paper size <select> options include aliases (e.g. "euro_poker" for
+// "standard") alongside canonical names; layoutsData.layouts is keyed by
+// canonical name only, so resolve back to it before looking a layout up.
+function resolveSizeName(sizeDefs, value) {
+  if (sizeDefs[value]) return value;
+  for (const [name, def] of Object.entries(sizeDefs)) {
+    if (def.aliases?.includes(value)) return name;
+  }
+  return value;
+}
+
+// Cards-per-page for the currently selected layout options, or null if
+// layouts.json hasn't loaded yet or the combination isn't in it.
+function getCardsPerPage() {
+  if (!layoutsData) return null;
+
+  const specialty = fieldValue("specialty");
+  if (specialty) {
+    const def = layoutsData.specialty_layouts?.[specialty];
+    return def ? def.num_rows * def.num_cols : null;
+  }
+
+  const cardSize = resolveSizeName(layoutsData.card_sizes, fieldValue("card_size"));
+  const paperSize = resolveSizeName(layoutsData.paper_sizes, fieldValue("paper_size"));
+  const borderless = document.getElementById("borderless").checked;
+
+  const variants = layoutsData.layouts?.[paperSize]?.[cardSize];
+  const def = (borderless && variants?.borderless) || variants?.default;
+  return def ? def.num_rows * def.num_cols : null;
+}
+
+// Shows how many card slots remain on the last page, since a page must be
+// filled with the current front image count before it can be cut — e.g. the
+// default Riftbound layout (standard card, letter paper) fits 8 per page.
+function updateFrontCountStatus() {
+  const el = document.getElementById("front-count-status");
+  if (!el) return;
+
+  const count = frontFiles.size;
+  if (count === 0) {
+    el.textContent = "";
+    return;
+  }
+
+  const capacity = getCardsPerPage();
+  if (!capacity) {
+    el.textContent = `${count} front image${count === 1 ? "" : "s"} uploaded.`;
+    return;
+  }
+
+  const pages = Math.ceil(count / capacity);
+  const remainder = count % capacity;
+  el.textContent =
+    remainder === 0
+      ? `${count} front image${count === 1 ? "" : "s"} uploaded — ${pages} page${pages === 1 ? "" : "s"} of ${capacity}, last page full.`
+      : `${count} front image${count === 1 ? "" : "s"} uploaded — ${pages} page${pages === 1 ? "" : "s"} of ${capacity}, ${capacity - remainder} slot${capacity - remainder === 1 ? "" : "s"} left on the last page.`;
+}
+
 async function populateLayoutOptions() {
   const res = await fetch(versioned("pylib/assets/layouts.json"));
   const layouts = await res.json();
+  layoutsData = layouts;
 
   const cardSizeSelect = document.getElementById("card_size");
   const priorityCards = ["standard", "poker", "bridge"];
@@ -552,6 +616,8 @@ async function populateLayoutOptions() {
       addOption(specialtySelect, name, name, false);
     }
   }
+
+  updateFrontCountStatus();
 }
 
 // Specialty overrides card_size/paper_size/registration/borderless (mirrors the CLI's validation).
@@ -563,7 +629,13 @@ document.getElementById("specialty").addEventListener("change", (e) => {
   // The CLI rejects --borderless combined with --specialty; don't submit a stale checked
   // state that the user can no longer see or change while the control is disabled.
   if (overridden) document.getElementById("borderless").checked = false;
+  updateFrontCountStatus();
 });
+
+// Cards-per-page depends on all three of these; keep the slot-count status in sync.
+for (const id of ["card_size", "paper_size", "borderless"]) {
+  document.getElementById(id).addEventListener("change", () => updateFrontCountStatus());
+}
 
 // ---------------------------------------------------------------------------
 // Calibration offset (mirrors offset_pdf.py's --save / create_pdf.py --load_offset)

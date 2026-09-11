@@ -74,6 +74,7 @@
           <input type="file" id="input-front" multiple accept="image/*">
           <div class="drophint">Drop files here or click to choose</div>
           <ul class="file-list" id="list-front"></ul>
+          <p class="hint" id="front-count-status"></p>
         </div>
 
         <div class="upload-zone" id="zone-back" data-target="back">
@@ -133,7 +134,7 @@
           <label><input type="checkbox" id="borderless" name="borderless"> Borderless (tighter inset, fits more cards)</label>
         </div>
         <div class="field checkbox-field">
-          <label><input type="checkbox" id="only_fronts" name="only_fronts"> Fronts only (no back pages)</label>
+          <label><input type="checkbox" id="only_fronts" name="only_fronts" checked> Fronts only (no back pages)</label>
         </div>
       </div>
     </section>
@@ -284,6 +285,6 @@
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
