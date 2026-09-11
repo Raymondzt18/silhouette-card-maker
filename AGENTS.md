@@ -82,6 +82,7 @@ Run by maintainers to regenerate project artifacts. Not needed for normal card-m
 | `generate_dxf.py` | Generate DXF cutting templates from `assets/layouts.json` |
 | `dxf_to_studio3.py` | Convert DXF files to Silhouette Studio `.studio3` format; subcommands: `convert` (single file), `batch` (all DXFs), `calibrate` (record UI coordinates) |
 | `generate_readme_tables.py` | Regenerate the card/paper size tables in `README.md` and Hugo docs |
+| `plugins/riftbound/generate_card_index.py` | Regenerate `hugo/static/pdf-maker/riftbound-card-index.json`, the offline name→card-number lookup the browser pdf-maker uses (Riftmana's search API has no CORS headers, so it can't be called live from a browser). Re-run after new Riftbound sets release, then bump `ASSET_VERSION` in `app.js`. |
 
 ### Internal modules
 

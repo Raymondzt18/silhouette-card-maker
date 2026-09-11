@@ -54,12 +54,13 @@
         <button type="button" id="fetch-import-btn">3. Fetch card images into Front images</button>
       </div>
       <p class="hint">
-        Images come from the <a href="https://piltoverarchive.com/" target="_blank" rel="noopener">Piltover Archive</a> CDN
-        (the only card image source that allows fetching from a browser page like this one). Lines already
-        written as a card code (like <code>OGN-214</code>) skip name lookup entirely and are more reliable;
-        plain names are resolved via Riftmana's search, which may occasionally fail to be reachable from a
-        browser &mdash; if a name fails, edit that line to use its card code instead and fetch again. Fetched
-        cards are added to the Front images list below, alongside anything you upload manually.
+        Images come from the <a href="https://piltoverarchive.com/" target="_blank" rel="noopener">Piltover Archive</a> CDN.
+        Lines already written as a card code (like <code>OGN-214</code>) skip name lookup entirely and are
+        most reliable; plain names are resolved against a bundled card list, falling back to a live
+        <a href="https://riftcodex.com/" target="_blank" rel="noopener">Riftcodex</a> lookup for anything
+        released after that list was last updated &mdash; if a name still fails, edit that line to use its
+        card code instead and fetch again. Fetched cards are added to the Front images list below, alongside
+        anything you upload manually.
       </p>
     </details>
 
@@ -283,6 +284,6 @@
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

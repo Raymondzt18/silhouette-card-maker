@@ -85,19 +85,14 @@ def fetch_card_art(index: int, card_number: str, quantity: int, source: ImageSer
                 with open(image_path, 'wb') as f:
                     f.write(card_art)
 
-def fetch_card_number(name: str) -> str:
-    # Resolve a card name to its card number via Riftmana's card search API.
-    url = RIFTMANA_SEARCH_URL_TEMPLATE.format(query=quote(name))
-    search_response = request_api(url)
-
-    cards = search_response.json().get('data', {}).get('cards', [])
-    if not cards:
-        return None
-
-    # The search can return multiple printings of the same name across sets
+def select_best_card_id(name: str, cards: list) -> str:
+    # `cards` may contain multiple printings of the same name across sets
     # (reprints) and multiple variants of the same printing (alternate art,
     # promos). Prefer an exact name match over a fuzzy one, and within that,
     # prefer the base card ID (no alternate-art/promo suffix) as the default.
+    if not cards:
+        return None
+
     normalized_name = name.strip().lower()
     exact_matches = [card for card in cards if (card.get('name') or '').strip().lower() == normalized_name]
     candidates = exact_matches or cards
@@ -108,6 +103,14 @@ def fetch_card_number(name: str) -> str:
             return card_id
 
     return candidates[0].get('card_id')
+
+def fetch_card_number(name: str) -> str:
+    # Resolve a card name to its card number via Riftmana's card search API.
+    url = RIFTMANA_SEARCH_URL_TEMPLATE.format(query=quote(name))
+    search_response = request_api(url)
+
+    cards = search_response.json().get('data', {}).get('cards', [])
+    return select_best_card_id(name, cards)
 
 def get_handle_card(
     source: ImageServer,

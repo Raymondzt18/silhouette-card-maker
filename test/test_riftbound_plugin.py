@@ -12,6 +12,7 @@ import pytest
 from plugins.riftbound.deck_formats import DeckFormat, parse_deck, parse_tts
 from plugins.riftbound.api import request_api, get_handle_card, ImageServer, fetch_card_number
 from plugins.riftbound.format_deck import parse_unformatted_deck
+from plugins.riftbound.generate_card_index import build_index
 
 
 def _search_response(cards):
@@ -113,6 +114,29 @@ class TestFetchCardNumber:
         ]
         with patch('plugins.riftbound.api.request_api', return_value=_search_response(cards)):
             assert fetch_card_number('Viktor, Herald of the Arcane') == 'OGN-265-p'
+
+
+class TestBuildCardIndex:
+    """Test generate_card_index.py's build_index(), which groups a flat card
+    list (as returned by Riftmana's search API, paginated across all cards)
+    into the name -> card number mapping shipped as riftbound-card-index.json."""
+
+    def test_groups_by_lowercased_name_and_picks_base_id(self):
+        cards = [
+            {'card_id': 'OGN-126', 'name': 'Body Rune'},
+            {'card_id': 'OGN-126a', 'name': 'Body Rune'},
+            {'card_id': 'OGN-245', 'name': 'Seal of Unity'},
+        ]
+        index = build_index(cards)
+        assert index == {
+            'body rune': 'OGN-126',
+            'seal of unity': 'OGN-245',
+        }
+
+    def test_skips_cards_with_no_name(self):
+        cards = [{'card_id': 'OGN-001', 'name': ''}, {'card_id': 'OGN-002', 'name': 'Brazen Buccaneer'}]
+        index = build_index(cards)
+        assert index == {'brazen buccaneer': 'OGN-002'}
 
 
 class TestParseUnformattedDeck:
